@@ -1,0 +1,66 @@
+version: "3.8"
+
+services:
+
+  redpanda:
+    image: redpandadata/redpanda
+    container_name: redpanda
+    command:
+      - redpanda
+      - start
+      - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr internal://redpanda:9092,external://localhost:19092
+      - --pandaproxy-addr internal://0.0.0.0:8082,external://0.0.0.0:18082
+      - --advertise-pandaproxy-addr internal://redpanda:8082,external://localhost:18082
+      - --schema-registry-addr internal://0.0.0.0:8081,external://0.0.0.0:18081
+      - --rpc-addr redpanda:33145
+      - --advertise-rpc-addr redpanda:33145
+      - --smp 2
+      - --memory 1G
+      - --overprovisioned
+      - --default-log-level=warn
+    ports:
+      - "19092:19092"   # Kafka API (external / host access)
+      - "18082:18082"   # HTTP Proxy
+      - "18081:18081"   # Schema Registry
+      - "9644:9644"     # Admin API
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+    networks: [iot-net]
+    healthcheck:
+      test: ["CMD", "rpk", "cluster", "info"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redpanda-console:
+    image: redpandadata/console
+    container_name: redpanda-console
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    networks: [iot-net]
+
+  iot-simulator:
+    build: ./simulator
+    container_name: iot-simulator
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      KAFKA_TOPIC: ${KAFKA_TOPIC:-iot.sensors.raw}
+      EMIT_INTERVAL_MS: ${EMIT_INTERVAL_MS:-500}
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    networks: [iot-net]
+    restart: on-failure
+
+networks:
+  iot-net:
+    driver: bridge
+
+volumes:
+  redpanda-data:
